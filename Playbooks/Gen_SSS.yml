@@ -1,0 +1,50 @@
+---
+# @author: Rodrigo Chaves <rschaves@kyndryl.com>
+# @copyright: (c) Kyndryl Inc. 2021. All Rights Reserved.
+# @name:Run Mult-OS Scan Sub System in NEXT
+# @base_version: 2.7.11
+# @description: Run Mult-OS SSS playbook
+# @param: delete_folder:string:optional:Remove SSS folder:Remove folder from endpoint before execution
+# @param: copy_to_sfs:string:optional:Copy zip to SFS:String with true, false, yes or no
+# @param: delete_sss_files:string:optional:Delete old sss and runnable files?: yes/no
+# @param: exclude_scan_list:string:optional:List of subsystem identifiers to disable on this run. Example: AAA ADI BEA IWS
+# @param: debug_scan_requested:string:optional:Generate a script_file with debug of the requested scan. Necessary to send to Global team. Example: subs_ora_win.vbs
+# @dependencies: HealthD Assignments
+# @dependencies: Requires Sudo: (x) Yes () No
+# @dependencies: Requires Ansible Pre-Reqs: (x) Yes () No
+
+- name: Scan Sub System
+  hosts: "{{ affected_host }}"
+  gather_facts: false
+  strategy: host_pinned
+  ignore_unreachable: true
+
+  pre_tasks:
+    - name: Import connection test
+      include_role:
+        name: connectivity_test
+
+    - name: Connection failure
+      fail:
+        msg: 'Host unreachable'
+      when: host_access.unreachable is defined and host_access.unreachable
+
+    - name: Check pre requirements
+      block:
+        - name: Set Ansible intepreter if applicable
+          vars:
+            ansible_python_interpreter: ""
+          include_role:
+            name: python_interpreter
+          when: hostvars[inventory_hostname].os != 'windows'
+
+        - name: Gather facts
+          setup:
+
+      rescue:
+        - name: Error results
+          debug: msg="{{ 'Error code 2 - Powershell version not supported' if hostvars[inventory_hostname].os == 'windows' else 'Error code 3 - Python not found or invalid' }}"
+          register: pre_reqs_failed
+
+  roles:
+    - ansible_sss_scan

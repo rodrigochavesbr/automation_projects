@@ -1,0 +1,219 @@
+---
+- name: Initial tasks
+  block:
+    - name: Clean SSS folder from endpoint
+      win_file:
+        path: "{{ home }}\\"
+        state: absent
+      ignore_errors: true
+      when: options.delete_folder and 'sss' in home
+
+    - name: Check if SSS exists on NEXT
+      stat:
+        path: "{{ sss_path }}\\sss.zip"
+      register: sss_exists
+      delegate_to: localhost
+
+    - name: Delete old SSS files if exist
+      win_file:
+        path: "{{ sss_path }}\\sss.zip"
+        state: absent
+      when: >
+          sss_exists.stat.exists and
+          options.delete_sss_files
+      register: sss_files_deleted
+
+    - name: Download Object Storage File
+      include_role:
+        name: ansible_role_download_object_storage_file
+      vars:
+        file_path: "{{ object_storage_path_sss_path }}"
+        dest_path: "{{ sss_path }}"
+      when: >
+          not sss_exists.stat.exists or
+          sss_files_deleted
+
+    - name: Delete last scan results from endpoint
+      win_file:
+        path: "{{ item }}"
+        state: absent
+      ignore_errors: true
+      with_items:
+        - "{{ home }}\\sss\\subs_scanner_result.txt"
+        - "{{ home }}\\results\\"
+      failed_when: false
+
+    - name: Create directory to copy files
+      win_file:
+        path: "{{ home }}\\results\\"
+        state: directory
+
+  rescue:
+    - debug: msg="Error code unknown - Check error {{ ansible_failed_result | string | regex_replace('(\'apikey\'\s*:\s*)\'[^\']*\'', '\1 VALUE_SPECIFIED_IN_NO_LOG_PARAMETER') }}"
+      register: task_failed
+
+- name: Transfer SSS files
+  block:
+    - name: Copy required files
+      win_copy:
+        src: "{{ item }}"
+        dest: "{{ home }}\\"
+        force: true
+      with_items:
+        - "{{ sss_path }}/sss.zip"
+        - "library/sss/wscanhw_config.xml"
+      register: sss_copy
+
+    - name: Unzip SSS
+      win_unzip:
+        src: "{{ home }}\\sss.zip"
+        dest: "{{ home }}\\"
+
+  when: task_failed is not defined
+  rescue:
+    - debug: msg="Failed to copy SSS"
+      register: task_failed
+
+- name: Start scripts
+  block:
+    - name: 'Step 1 Delete Properties File'
+      win_file:
+        path: "{{ home }}\\sss\\sdms.properties"
+        state: absent
+
+    - name: Create Properties File
+      win_file:
+        path: "{{ home }}\\sss\\sdms.properties"
+        state: touch
+
+    - name: Write Variables With Their Respective Keys In Propeties File
+      win_lineinfile:
+        dest: "{{ home }}\\sss\\sdms.properties"
+        line: "{{ item.line }}"
+      loop:
+        - {line: 'SSL_ENABLED=false'}
+        - {line: 'SSL_COLD_START=false'}
+        - {line: 'SSL_ENABLE_PFILES=false'}
+        - {line: 'SSL_ENABLE_KDB=false'}
+        - {line: 'EXCLUDE_SCAN_LIST=cbs cfs dir ilk ina nco noc oic osl res rsa scm sck smm ssl ssk t4d tdm tim tiv tpm {{ exclude_scan_list }}'}
+        - {line: 'DB_SWITCH=Y'}
+        - {line: 'DEBUG_MODE=Y'}
+        - {line: 'DEBUG=ALL'}
+        - {line: 'TEMP_DIR_SWITCH=Y'}
+
+    - name: Run SSS
+      win_shell: "subs_all.bat sdms.properties 1 > %computername%_sss.log 2>&1"
+      args:
+        executable: cmd.exe
+        chdir: "{{ home }}\\sss\\"
+
+    - name: Run SSS in debug scan mode
+      win_shell: "cmd /c set debug_mode=true&&cscript /nologo {{ debug_scan_requested }}.vbs"
+      args:
+        executable: cmd.exe
+        chdir: "{{ home }}\\sss\\"
+      when: debug_scan_requested
+      register: debug_mode_files
+
+    - name: Move debug scan files
+      win_copy:
+        src: "{{ home }}\\sss\\script_trace.txt"
+        dest: "{{ home }}\\results\\"
+        remote_src: true
+        force: true
+      when: debug_mode_files
+
+    - name: Run computersystem
+      script: library/sss/computersystem.ps1 -sss_file "{{ home }}\\sss\\subs_scanner_result.txt"
+      args:
+        executable: "{{ ['PowerShell -NoProfile -NonInteractive -ExecutionPolicy Unrestricted -File', omit][hostvars[inventory_hostname].client == 'sgb'] }}"
+
+    - name: Check hardware scan executable
+      win_stat:
+        path: "{{ ansible_home }}\\GTS\\CIT\\cit\\bin\\wscanhw.exe"
+      register: wscanhw
+
+    - name: Run hardware scan
+      win_shell: './wscanhw.exe -nolock -c "{{ home }}\\wscanhw_config.xml" > "{{ home }}\\results\\wscanhw.xml"'
+      args:
+        chdir: "{{ ansible_home }}\\GTS\\CIT\\cit\\bin\\"
+      failed_when: false
+      ignore_errors: true
+      when: wscanhw.stat.exists
+
+  when: task_failed is not defined
+  rescue:
+    - debug: msg="Error code unknown - Check error {{ ansible_failed_result | string | regex_replace('(\'apikey\'\s*:\s*)\'[^\']*\'', '\1 VALUE_SPECIFIED_IN_NO_LOG_PARAMETER') }}"
+      register: task_failed
+
+- name: Copy results
+  block:
+    - name: Move SSS result
+      win_copy:
+        src: "{{ home }}\\sss\\subs_scanner_result.txt"
+        dest: "{{ home }}\\results\\"
+        remote_src: true
+        force: true
+
+    - name: Archive results
+      vars:
+        separator: \
+        line_break: \r\n
+      win_shell: |
+        $separator = '{{ separator }}'
+        $hostname = '{{ hostname }}'
+        $path = ('{{ home }}').replace('{{ line_break }}', '') + $separator
+        $zip = $hostname + '.zip'
+        $results_path = $path + 'results' + $separator
+        Add-Type -Assembly 'System.IO.Compression.FileSystem'
+        [System.IO.Compression.ZipFile]::CreateFromDirectory( $results_path, ($path + $zip) )
+        mv ($path + $zip) ($results_path + $zip)
+
+    - name: Copy file archived
+      fetch:
+        src: "{{ home }}\\results\\{{ hostname }}.zip"
+        dest: "{{ local_path }}/{{ hostname }}.zip"
+        flat: true
+
+  when: task_failed is not defined
+  rescue:
+    - name: Copy each file and zip locally
+      block:
+        - name: Create local path to copy files
+          file:
+            path: "{{ local_path }}/files/"
+            state: directory
+          delegate_to: localhost
+
+        - name: List files on results folder
+          vars:
+            results_path: "{{ home }}\\results\\"
+          win_shell: 'Get-ChildItem "{{ results_path }}" | ForEach-Object { Write-OutPut $_.Name }'
+          register: result_files
+
+        - name: Copy results without compressing them
+          vars:
+            results_path: "{{ home }}\\results\\"
+          fetch:
+            src: "{{ results_path }}{{ item }}"
+            dest: "{{ local_path }}/files/{{ item }}"
+            flat: true
+          loop: "{{ result_files.stdout_lines }}"
+
+        - name: Compress files
+          archive:
+            path: "{{ local_path }}/files/"
+            dest: "{{ local_path }}/{{ hostname }}.tgz"
+            exclude_path: true
+          delegate_to: localhost
+
+        - name: Delete files folder
+          file:
+            path: "{{ local_path }}/files/"
+            state: absent
+          delegate_to: localhost
+          register: tgz_file
+
+      rescue:
+        - debug: msg="Error code 8 - Unable to copy results. Check error {{ ansible_failed_result | string | regex_replace('(\'apikey\'\s*:\s*)\'[^\']*\'', '\1 VALUE_SPECIFIED_IN_NO_LOG_PARAMETER') }}"
+          register: task_failed

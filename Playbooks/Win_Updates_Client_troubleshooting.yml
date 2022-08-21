@@ -1,0 +1,24 @@
+---
+# @author: Rodrigo Chaves <rschaves@kyndryl.com>
+# @author: Leyder Ceron <lceron@kyndryl.com>
+# @copyright: (c) Kyndryl Inc. 2021. All Rights Reserved.
+# @name: Troubleshooting Windows Updates client
+# @base_version: 2.7.11
+# @description: Execute Windows Updates troubleshooting in servers
+# @dependencies: WSUS Assignments
+# @dependencies: Requires Sudo: (x) Yes () No
+# @dependencies: Requires Ansible Pre-Reqs: (x) Yes () No
+
+- name: Windows updates steps Troubleshooting
+  gather_facts: false
+  strategy: linear
+  hosts: "{{ affected_host }}"
+  roles: ['ansible_role_ssh_tunnel']
+  ignore_unreachable: true
+  tasks:
+  - block:
+    - name: Run PS script
+      script: scripts/windows/win_updates_troubleshooting.ps1
+      args:
+        executable: 'PowerShell -NoProfile -NonInteractive'
+

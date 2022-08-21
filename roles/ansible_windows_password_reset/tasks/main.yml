@@ -1,0 +1,84 @@
+---
+- block:
+    - name: Check last password change date
+      win_shell: |
+        Add-Type -AssemblyName System.DirectoryServices.AccountManagement
+        $UserPrincipal = [System.DirectoryServices.AccountManagement.UserPrincipal]::Current
+          $date = Get-Date
+          $diff = $UserPrincipal.LastPasswordSet
+          $diff3 = $date - $diff
+        $diff3.days
+      when: check_last|bool
+      register: days
+      failed_when: days.stdout_lines[0] |int < 5
+
+  rescue:
+    - name: Last password change message
+      fail: msg='Password reset failed because it has already been changed in the last {{ days.stdout_lines[0] }} days'
+
+- block:
+    - name: Generate a random password
+      set_fact:
+        random_password: "{{ lookup('password', '/dev/null length=25 chars=ascii_letters,digits,@!#&*%+/<>') }}"
+      no_log: true
+      delegate_to: localhost
+
+    - name: Check user status
+      win_shell: |
+        Add-Type -AssemblyName System.DirectoryServices.AccountManagement
+        $UserPrincipal = [System.DirectoryServices.AccountManagement.UserPrincipal]::Current
+        if ($UserPrincipal.ContextType -eq "Domain") {
+          return "domain"
+        }
+        else {
+          return "standalone"
+        }
+      register: user_status
+
+    - name: Show the user
+      win_shell: |
+        Add-Type -AssemblyName System.DirectoryServices.AccountManagement
+         $UserPrincipal = [System.DirectoryServices.AccountManagement.UserPrincipal]::Current.SamAccountName
+        $UserPrincipal
+      no_log: false
+
+    - name: Run module to reset Windows domain password
+      win_shell: |
+        $SecurePassword = "{{ random_password }}"
+        Add-Type -AssemblyName System.DirectoryServices.AccountManagement
+        $UserPrincipal = [System.DirectoryServices.AccountManagement.UserPrincipal]::Current.SamAccountName
+        net user $UserPrincipal $SecurePassword /domain
+      when: "'domain' in user_status.stdout_lines"
+      no_log: false
+
+    - name: Run module to reset Windows standalone password
+      win_shell: |
+        $SecurePassword = "{{ random_password }}"
+        Add-Type -AssemblyName System.DirectoryServices.AccountManagement
+        $UserPrincipal = [System.DirectoryServices.AccountManagement.UserPrincipal]::Current.SamAccountName
+        net user $UserPrincipal $SecurePassword
+      when: "'standalone' in user_status.stdout_lines"
+      no_log: false
+
+    - name: Update credentials on Vault
+      vars:
+        separator: '\'
+        domain: '{{ ansible_user.split(separator)[0] | lower }}'
+
+      update_vault_credentials:
+        secret:
+          domain: '{{ domain }}'
+          is_domain: '{{ True if "domain" in user_status.stdout_lines else False }}'
+          secret: "{{ random_password }}"
+        hostname: "{{ inventory_hostname }}"
+        technology: "Windows"
+        client: "{{ blueid_shortcode | default(client) }}"
+        country: "{{ country }}"
+        vault_url: "{{ vault_url }}"
+        vault_role_id: "{{ vault_role_id }}"
+        vault_secret_id: "{{ vault_secret_id }}"
+      delegate_to: localhost
+
+  rescue:
+    - name: Password reset failed
+      debug: msg="Password reseted failed."

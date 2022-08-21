@@ -1,0 +1,14 @@
+---
+# vars file for ansible_windows_password_reset
+# Vault - From assignments
+vault_url: "{{ vars.vault.url if vars.vault is defined and vars.vault.url is defined else '' }}"
+vault_role_id: "{{ vars.vault.role_id if vars.vault is defined and vars.vault.role_id is defined else '' }}"
+vault_secret_id: "{{ vars.vault.secret_id if vars.vault is defined and vars.vault.secret_id is defined else '' }}"
+vault_host: "{{ vars.vault.host if vars.vault is defined and vars.vault.host is defined else '' }}"
+vault_log: "{{ false if vars.vault is defined and vars.vault.log is defined and (vars.vault.log | bool) else true }}"
+
+# This parameter can be setup during the execution, and in case it's not defined use assignemnts
+tsm_servers_list: "{{ (tsm_servers.split(',') | replace(' ', '')) if tsm_servers is defined and tsm_servers | length > 0 else (vars.tsm.tsm_servers.split(',') | replace(' ', '')) if vars.tsm is defined and vars.tsm.tsm_servers is defined else [] }}"
+
+# Determine which instance to run the reset, in case not defined will change all instances for determined server
+specific_instances: "{{ (specific_instances.split(',') | replace(' ', '')) if specific_instances is defined and specific_instances | length > 0 else [] }}"

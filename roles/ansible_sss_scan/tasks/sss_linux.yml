@@ -1,0 +1,154 @@
+---
+- name: Initial tasks
+  block:
+    - name: Clean SSS folder from endpoint
+      file:
+        path: "{{ home }}/"
+        state: absent
+      become: true
+      ignore_errors: true
+      when: options.delete_folder and 'sss' in home
+
+    - name: Delete last scan results from endpoint
+      file:
+        path: "{{ item }}"
+        state: absent
+      ignore_errors: true
+      become: true
+      with_items:
+        - "{{ home }}/sss/subs_scanner_result.txt"
+        - "{{ home }}/results/"
+      failed_when: false
+
+    - name: Check if SSS exists on NEXT
+      stat:
+        path: "{{ sss_path }}/sss.tar.gz"
+      register: sss_exists
+      delegate_to: localhost
+
+    - name: delete old SSS files if exists
+      file:
+        path: "{{ sss_path }}/sss.tar.gz"
+        state: absent
+      ignore_errors: true
+      become: true
+      when: >
+          sss_exists.stat.exists and
+          options.delete_sss_files
+      register: sss_files_deleted
+
+    - name: Download Object Storage File
+      include_role:
+        name: ansible_role_download_object_storage_file
+      vars:
+        file_path: "{{ object_storage_path_sss_path }}"
+        dest_path: "{{ sss_path }}"
+      when: >
+          not sss_exists.stat.exists or
+          sss_files_deleted
+
+    - name: Create directory to copy files on endpoint
+      file:
+        path: "{{ home }}/results"
+        state: directory
+        mode: 01777
+      become: true
+
+  rescue:
+    - debug: msg="{{ 'Error code 4 - Permission failure' if ansible_failed_result is defined and 'not allowed to execute' in ansible_failed_result.module_stdout else '' }}"
+      register: task_failed
+
+- name: Transfer SSS files
+  block:
+    - name: Copy required files
+      copy:
+        src: "{{ item }}"
+        dest: "{{ home }}/"
+        mode: '0700'
+        owner: 'root'
+        force: true
+      become: true
+      with_items:
+        - "{{ sss_path }}/sss.tar.gz"
+        - "library/sss/wscanhw_config.xml"
+      register: sss_copy
+
+    - name: Extract SSS
+      shell: gunzip < sss.tar.gz | tar xf -
+      args:
+        chdir: "{{ home }}/"
+        warn: false
+      become: true
+
+  rescue:
+    - debug: msg="Exit code 7 - Failed to copy or extract SSS or config for harware scan files"
+      register: task_failed
+
+  when: task_failed is not defined
+
+- name: Start scripts
+  block:
+    - name: Run SSS
+      shell:
+        cmd: "./subs_all.sh > ../results/sss.log"
+        chdir: "{{ home }}/sss/"
+      become: true
+      environment:
+        EXCLUDE_SCAN_LIST: "CBS CFS DIR ILK MAL OIC OSL RES RSA SCM SHS SSK SSL T4D TIM TIV TPM"
+
+    - name: Run computersystem
+      script: library/sss/computersystem.sh "{{ home }}/sss/subs_scanner_result.txt" "{{ home }}/results/{{ hostname }}.json"
+      args:
+        chdir: "{{ home }}/"
+      become: true
+
+    - name: Check hardware scan executable
+      stat:
+        path: "{{ ansible_home }}/GTS/CIT/cit/bin/wscanhw"
+      register: wscanhw
+      become: true
+
+    - name: Run hardware scan
+      shell: "{{ ansible_home }}/GTS/CIT/cit/bin/wscanhw -nolock -c {{ home }}/wscanhw_config.xml > {{ home }}/results/wscanhw.xml"
+      become: true
+      failed_when: false
+      ignore_errors: true
+      when: wscanhw.stat.exists
+
+  when: task_failed is not defined
+  rescue:
+    - debug: msg="Error code unknown - Check error {{ ansible_failed_result | string | regex_replace('(\'apikey\'\s*:\s*)\'[^\']*\'', '\1 VALUE_SPECIFIED_IN_NO_LOG_PARAMETER') }}"
+      register: task_failed
+
+- name: Copy results
+  block:
+    - name: Copy SSS result
+      copy:
+        src: "{{ home }}/sss/subs_scanner_result.txt"
+        dest: "{{ home }}/results/"
+        remote_src: true
+        force: true
+        mode: preserve
+      become: true
+
+    - name: Archive results
+      archive:
+        path:
+          - "{{ home }}/results/*"
+        dest: "{{ home }}/results/{{ hostname }}.tgz"
+        mode: 0644
+      become: true
+
+    - name: Copy file archived
+      fetch:
+        src: "{{ home }}/results/{{ hostname }}.tgz"
+        dest: "{{ local_path }}/{{ hostname }}.tgz"
+        flat: true
+      become: true
+
+  rescue:
+    - debug:
+        msg: "Error code 8 - Failed to copy results"
+      register: task_failed
+
+  when: task_failed is not defined

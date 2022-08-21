@@ -1,0 +1,58 @@
+---
+## General
+customer: "{{ hostvars[inventory_hostname].client }}"
+
+# Paths to copy files
+# From Assignments
+path: "/tmp/sss"
+
+# Paths to copy files
+# From Object storage
+sss_path: "/tmp/sss"
+object_storage_path_runnable: "/sss/runnable.tar.gz"
+object_storage_path_sss_path: "/sss/sss.{{ 'zip' if os == 'windows' else 'tar.gz' }}"
+
+# Define os of the host according to gather facts
+linux: "['redhat', 'debian', 'suse', 'solaris', 'hp-ux']"
+os: "{{ 'linux' if (ansible_os_family is defined and ( ansible_os_family |lower ) in linux) else ( ansible_os_family | lower) if ansible_os_family is defined else hostvars[inventory_hostname].os }}"
+
+# From Assignments
+options:
+  delete_folder: "{{ true if delete_folder is defined and (delete_folder | lower) in ['true', 'yes'] else false }}"
+  copy_to_sfs: "{{ true if copy_to_sfs is defined and (copy_to_sfs | lower) in ['true', 'yes'] else false }}"
+  delete_sss_files: "{{ true if delete_sss_files is defined and (delete_sss_files | lower) in ['true', 'yes'] else false }}"
+  exclude_scan_list: "{{ true if exclude_scan_list is defined and (exclude_scan_list | lower) in ['true', 'yes'] else false }}"
+  debug_scan_requested: "{{ true if debug_scan_requested is defined and (debug_scan_requested | lower) in ['true', 'yes'] else false }}"
+
+# Define home to copy all files
+# Ansible Home
+unix_ansible_home: "/var/opt/ansible"
+win_ansible_home: "{{ ansible_env['ProgramFiles'] if os in ['windows'] else '' }}\\ansible"
+ansible_home: "{{ win_ansible_home if os in ['windows'] else unix_ansible_home }}"
+
+# SSS home
+separator: '{{ "\\" if os == "windows" else "/" }}'
+home: "{{ ansible_home }}{{ separator }}GTS{{ separator }}sss"
+
+# Files required to run
+# sss_path: "{{ path }}/sss/sss.{{ 'zip' if os == 'windows' else 'tar.gz' }}"
+
+# Define main task
+local_path: "/tmp/sss/{{ customer }}/{{ inventory_hostname }}"
+connection_string: "{% if ansible_port is defined %} -o Port={{ ansible_port }} {% endif %} {% if ansible_ssh_common_args is defined %} {{ ansible_ssh_common_args }} {% endif %}"
+
+# Define hostname
+hostname: "{{ (ansible_fqdn.split('.')[0] | lower) if ansible_fqdn is defined else (inventory_hostname | lower) }}"
+
+# Cmdb tool
+# From Assignments
+snow_instance: "{{ vars.snow.instance }}"
+# snow_user: "{{ vars.snow.user }}"
+# snow_password: "{{ vars.snow.passwd }}"
+
+client_code: 'lai'
+country_code: 'br'
+snow_secret: 'credentials/{{ country_code }}/{{ client_code }}/connection/snow/'
+vault_path: 'auth_method=token token={{ vault_token }} url={{ vault_url }} secret={{ snow_secret }}'
+snow_user: "{{ lookup('hashi_vault', vault_path ~ 'identity:credential') }}"
+snow_password: "{{ lookup('hashi_vault', vault_path ~ 'secret:secret') }}"

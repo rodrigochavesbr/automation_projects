@@ -1,0 +1,176 @@
+---
+- name: Run SSS scan
+  block:
+    - name: Start time
+      set_fact:
+        start_time: "{{ ansible_date_time.iso8601[:19] }}"
+
+    - name: Set gsma_code when assigned
+      set_fact:
+        customer: '{{ hostvars[vars.groups["all"][0]].account_info.gsma_code }}'
+      when: >
+        hostvars[vars.groups["all"][0]].account_info is defined and
+        hostvars[vars.groups["all"][0]].account_info.gsma_code is defined and
+        hostvars[vars.groups["all"][0]].account_info.gsma_code | trim | length > 0
+
+    - name: Delete local directory with old results
+      file:
+        path: "{{ local_path }}"
+        state: absent
+      delegate_to: localhost
+      ignore_errors: true
+      failed_when: false
+
+    - name: SSS scan role
+      vars:
+        main_task: "sss_{{ 'win' if os == 'windows' else 'unix' }}.yml"
+      include_tasks: "{{ main_task if pre_reqs_failed is not defined else 'sss_unix_shell.yml' }}"
+      when: pre_reqs_failed is not defined or os in ['aix', 'linux']
+
+    - name: Check if runnable exists on NEXT
+      find:
+        paths: "{{ sss_path }}/"
+        pattern: 'runnable.tar.gz'
+        age: "7d"
+      register: runnable_exists
+      delegate_to: localhost
+
+    - name: delete old Runnable files if exists
+      file:
+        path: "{{ sss_path }}/runnable.tar.gz"
+        state: absent
+      delegate_to: localhost
+      ignore_errors: true
+      when: >
+          runnable_exists.files and
+          options.delete_sss_files
+      register: sss_files_deleted
+
+    - name: Download Object Storage File
+      include_role:
+        name: ansible_role_download_object_storage_file
+      vars:
+        file_path: "{{ object_storage_path_runnable }}"
+        dest_path: "{{ sss_path }}"
+      when: >
+          task_failed is not defined and
+          (pre_reqs_failed is not defined or run_success is defined) and
+          (country is defined and "BR" in country | upper) and
+          not runnable_exists.files or runnable_exists.files | length > 7 or
+          sss_files_deleted
+
+    - name: Extract runnable
+      shell: gunzip < runnable.tar.gz | tar xf -
+      args:
+        chdir: "{{ sss_path }}/"
+        warn: false
+      delegate_to: localhost
+
+    - name: Send scan results to Maximo
+      command: "./send2maximo.pl -d {{ customer }} {{ hostname }} {{ ansible_host }} {{ path }}/runnable/ {{ local_path }}"
+      args:
+        chdir: "library/sss/perl/"
+      delegate_to: localhost
+      when: >
+          task_failed is not defined and
+          (pre_reqs_failed is not defined or run_success is defined) and
+          (country is defined and "BR" in country | upper)
+      register: maximo_result
+      no_log: false
+
+    - name: Send scan results to ServiceNow
+      command: |
+        {{ ansible_playbook_python }} library/sss/send2now.py \
+          --client "{{ customer }}" \
+          --file "{{ local_path }}/{{ hostname }}.{{ 'zip' if os == 'windows' and tgz_file is not defined else 'tgz' }}" \
+          --ip "{{ ansible_host }}" \
+          --url "{{ snow_instance }}/api/ibmba/ibm_cmdb/createupdate_ci" \
+          --username "{{ snow_user }}" \
+          --password "{{ snow_password }}"
+      delegate_to: localhost
+      register: servicenow_result
+      no_log: false
+      when: >
+        task_failed is not defined and
+        (pre_reqs_failed is not defined or run_success is defined) and
+        (country is defined and "BR" not in country | upper)
+
+    - name: Include SFS copy
+      include_tasks: "copy_sfs.yml"
+      when: options.copy_to_sfs
+
+    - name: Force to get end time
+      setup:
+        gather_subset: '!all,!min,date_time'
+
+    - name: Get runtime
+      set_fact:
+        runtime: "{{ ((ansible_date_time.iso8601[:19] | to_datetime('%Y-%m-%dT%H:%M:%S')) - (start_time | to_datetime('%Y-%m-%dT%H:%M:%S'))).seconds | int / 60 }}"
+
+  rescue:
+    - name: Error results
+      debug: msg="Error code 6 - Unable to post results for {{ hostname }} on Maximo or ServiceNow. Check error message"
+
+    - name: Include SFS copy
+      include_tasks: "copy_sfs.yml"
+
+  always:
+    - name: Maximo support debug message
+      debug:
+        msg: Maximo status. Check {{ maximo_result.stdout_lines[-1:] }}
+      when: maximo_result is defined and maximo_result.stdout is defined
+
+    - name: ServiceNow support debug message
+      debug:
+        msg: Service now status. Check {{ servicenow_result.stdout_lines[-1:] }}
+      when: servicenow_result is defined and servicenow_result.stdout is defined
+
+    - name: Initialize ELK variables
+      include_vars: roles/elastic_post_data/defaults/main.yml
+
+    - name: Adding elastic_post_data role
+      include_role:
+        name: elastic_post_data
+      vars:
+        timestamp: "{{ lookup('pipe', 'date +\"%Y-%m-%dT%H:%M:%S.000Z\"') }}"
+        customer_name: '{{ hostvars[inventory_hostname].client_name }}'
+        country: '{{ elastic_country_code[hostvars[inventory_hostname].country | upper] }}'
+        customer_code: "{{ hostvars[inventory_hostname].client_code }}"
+        ciname: '{{ hostvars[inventory_hostname].inventory_hostname_short | lower }}'
+        url: '{{ elastic_url }}'
+        elastic_uri: "next_sss-{{ lookup('pipe', 'date +\"%Y\"') }}/_update/{{ customer_code }}_{{ ciname }}_{{ lookup('pipe', 'date +\"%Y.%V\"') }}"
+        elastic_doc: false
+        elastic_data: |-
+          {%- set doc = { "id": job_id, "customer": customer_code, "host_status": host_status } -%}
+          {%- set i = doc.update({ "market": country if country in ["Brazil", "Mexico"] else "SSA" }) -%}
+          {%- set i = doc.update({ "country": country }) -%}
+          {%- set i = doc.update({ "created_at": timestamp }) -%}
+          {%- set i = doc.update({ "hostname": ciname }) -%}
+          {%- set i = doc.update({ "customer_name": customer_name }) -%}
+          {% if maximo_result is defined and maximo_result | string is search('.*posted successfully.*') %}
+            {%- set i = doc.update({ "maximo_status": 'completed' }) %}
+          {% endif %}
+          {% if servicenow_result is defined and servicenow_result | string is search('.*Request Received.*') %}
+            {%- set i = doc.update({ "snow_status": 'completed' }) %}
+          {% endif %}
+          {% if maximo_result.stdout_lines is defined and maximo_result | string is not search('.*posted successfully.*') %}
+            {%- set i = doc.update({ "maximo_status": 'failed' }) %}
+            {%- set i = doc.update({ "maximo_error": maximo_result.stdout_lines[-1:] }) %}
+          {% endif %}
+          {% if servicenow_result.stdout_lines is defined and servicenow_result | string is not search('.*Request Received.*') %}
+            {%- set i = doc.update({ "snow_status": 'failed' }) %}
+            {%- set i = doc.update({ "snow_error": servicenow_result.stdout_lines[-1:] }) %}
+          {% endif %}
+          {% if runtime is defined  %}
+            {%- set i = doc.update({ "runtime_min": runtime | float | round(2) }) -%}
+          {% endif %}
+          {%- set i = doc.update({ "@timestamp": timestamp }) -%}
+          {{ { "doc": doc, "doc_as_upsert": "true" } }}
+
+- name: Post fail status
+  fail:
+    msg: "Unable to post the results. Check error message on kibana dashboard or in task results above."
+  delegate_to: 127.0.0.1
+  when: >
+    (servicenow_result is defined and servicenow_result | string is not search('.*Request Received.*')) and
+    (maximo_result is defined and maximo_result | string is not search('.*posted successfully.*'))
