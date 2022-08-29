@@ -27,3 +27,11 @@
     - name: Troubleshooting task failed
       debug:
         msg: "Troubleshooting task failed"
+
+    - name: Start troubleshooting
+      include_tasks: ../roles/tasks/win_updates_troubleshooting.yml
+      register: troubleshooting
+
+    rescue:
+    set_fact:
+    error: "{{ ansible_failed_result }}"
