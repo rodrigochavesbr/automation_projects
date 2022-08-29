@@ -1,7 +1,5 @@
 ---
 # @author: Rodrigo Chaves <rschaves@kyndryl.com>
-# @author: Leyder Ceron <lceron@kyndryl.com>
-# @copyright: (c) Kyndryl Inc. 2021. All Rights Reserved.
 # @name: Troubleshooting Windows Updates client
 # @base_version: 2.7.11
 # @description: Execute Windows Updates troubleshooting in servers
@@ -15,10 +13,17 @@
   hosts: "{{ affected_host }}"
   roles: ['ansible_role_ssh_tunnel']
   ignore_unreachable: true
-  tasks:
-  - block:
-    - name: Run PS script
-      script: scripts/windows/win_updates_troubleshooting.ps1
-      args:
-        executable: 'PowerShell -NoProfile -NonInteractive'
 
+  tasks:
+    - name: Run PS script
+      script: 'scripts/windows/win_updates_troubleshooting.ps1'
+      args:
+        executable: 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Unrestricted'
+
+    - name: Initiating update cycle
+      win_shell: (New-Object -ComObject Microsoft.Update.AutoUpdate).DetectNow()
+
+  rescue:
+    - name: Troubleshooting task failed
+      debug:
+        msg: "Troubleshooting task failed"

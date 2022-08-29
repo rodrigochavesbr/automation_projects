@@ -1,6 +1,5 @@
 ---
 # @author: Rodrigo Chaves <rschaves@kyndryl.com>
-# @copyright: (c) Kyndryl Inc. 2021. All Rights Reserved.
 # @name:Run Mult-OS Scan Sub System in NEXT
 # @base_version: 2.7.11
 # @description: Run Mult-OS SSS playbook

@@ -1,6 +1,5 @@
 ---
 # @author: Rodrigo Chaves <rschaves@kyndryl.com>
-# @copyright: (c) Kyndryl Inc. 2021. All Rights Reserved.
 # @name: Windows WSUS Report
 # @base_version: 2.7.12
 # @description: Windows Wsus complete report on Windows Servers

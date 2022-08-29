@@ -8,7 +8,6 @@ $ErrorActionPreference = 'SilentlyContinue'
 
 ## @file wsus_troubleshooting
 ## @author Rodrigo Chaves <rschaves@kyndryl.com>
-## @copyright (c) Kyndryl Inc. 2021. All Rights Reserved.
 ## @version if applicable, provide information
 ## @brief roubleshooting of windows updates in a endpoint
 ## @par URL
@@ -27,21 +26,6 @@ $ErrorActionPreference = 'SilentlyContinue'
 ## calling methods and also prohibits a variable without a name (${}) causing
 ## failure of the running script
 
-################################################################################
-# Licensed Materials - Property of Kyndryl
-# (c) Kyndryl Inc. 2021. All Rights Reserved.
-################################################################################
-#
-#             __/\\\\\_____/\\\__/\\\_______/\\\__/\\\\\\\\\\\\\\\_
-#              _\/\\\\\\___\/\\\_\///\\\___/\\\/__\///////\\\/////__
-#               _\/\\\/\\\__\/\\\___\///\\\\\\/__________\/\\\_______
-#                _\/\\\//\\\_\/\\\_____\//\\\\____________\/\\\_______
-#                 _\/\\\\//\\\\/\\\______\/\\\\____________\/\\\_______
-#                  _\/\\\_\//\\\/\\\______/\\\\\\___________\/\\\_______
-#                   _\/\\\__\//\\\\\\____/\\\////\\\_________\/\\\_______
-#                    _\/\\\___\//\\\\\__/\\\/___\///\\\_______\/\\\_______
-#                     _\///_____\/////__\///_______\///________\///________
-#
 ################################################################################
 #    Filename: win_updates_troubleshooting.ps1
 # Description: The purpose of this program is to run a Windows Update Troubleshooting

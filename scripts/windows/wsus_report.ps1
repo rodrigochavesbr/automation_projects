@@ -7,7 +7,6 @@ $ErrorActionPreference = 'Stop'
 
 ## @file wsus_report
 ## @author Rodrigo Chaves <rschaves@kyndryl.com>
-## @copyright (c) Kyndryl Inc. 2021. All Rights Reserved.
 ## @version if applicable, provide information
 ## @brief Wsus report
 ## @par URL
@@ -27,22 +26,6 @@ $ErrorActionPreference = 'Stop'
 ## calling methods and also prohibits a variable without a name (${}) causing
 ## failure of the running script
 
-################################################################################
-# Licensed Materials - Property of Kyndryl
-# (c) Kyndryl Inc. 2021. All Rights Reserved.
-################################################################################
-#
-#             __/\\\\\_____/\\\__/\\\_______/\\\__/\\\\\\\\\\\\\\\_
-#              _\/\\\\\\___\/\\\_\///\\\___/\\\/__\///////\\\/////__
-#               _\/\\\/\\\__\/\\\___\///\\\\\\/__________\/\\\_______
-#                _\/\\\//\\\_\/\\\_____\//\\\\____________\/\\\_______
-#                 _\/\\\\//\\\\/\\\______\/\\\\____________\/\\\_______
-#                  _\/\\\_\//\\\/\\\______/\\\\\\___________\/\\\_______
-#                   _\/\\\__\//\\\\\\____/\\\////\\\_________\/\\\_______
-#                    _\/\\\___\//\\\\\__/\\\/___\///\\\_______\/\\\_______
-#                     _\///_____\/////__\///_______\///________\///________
-#
-################################################################################
 #    Filename: wsus_report.ps1
 # Description: The purpose of this program is to run a Report of Wsus Server.
 #   Reference:
