@@ -32,6 +32,6 @@
       include_tasks: ../roles/tasks/win_updates_troubleshooting.yml
       register: troubleshooting
 
-    rescue:
-    set_fact:
-    error: "{{ ansible_failed_result }}"
+      rescue:
+      set_fact:
+      error: "{{ ansible_failed_result }}"
