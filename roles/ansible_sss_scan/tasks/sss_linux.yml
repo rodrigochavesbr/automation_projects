@@ -2,18 +2,17 @@
 - name: Initial tasks
   block:
     - name: Clean SSS folder from endpoint
-      file:
+      ansible.builtin.file:
         path: "{{ home }}/"
         state: absent
+        force: true
       become: true
-      ignore_errors: true
-      when: options.delete_folder and 'sss' in home
+      failed_when: "'sss' not in home and not ansible_check_mode"
 
     - name: Delete last scan results from endpoint
-      file:
+      ansible.builtin.file:
         path: "{{ item }}"
         state: absent
-      ignore_errors: true
       become: true
       with_items:
         - "{{ home }}/sss/subs_scanner_result.txt"
@@ -21,47 +20,39 @@
       failed_when: false
 
     - name: Check if SSS exists on NEXT
-      stat:
+      ansible.builtin.stat:
         path: "{{ sss_path }}/sss.tar.gz"
       register: sss_exists
       delegate_to: localhost
 
-    - name: delete old SSS files if exists
-      file:
+    - name: Delete old SSS files if exists
+      ansible.builtin.file:
         path: "{{ sss_path }}/sss.tar.gz"
         state: absent
-      ignore_errors: true
       become: true
-      when: >
-          sss_exists.stat.exists and
-          options.delete_sss_files
+      when: sss_exists.stat.exists and options.delete_sss_files
       register: sss_files_deleted
 
-    - name: Download Object Storage File
-      include_role:
-        name: ansible_role_download_object_storage_file
-      vars:
-        file_path: "{{ object_storage_path_sss_path }}"
-        dest_path: "{{ sss_path }}"
-      when: >
-          not sss_exists.stat.exists or
-          sss_files_deleted
-
     - name: Create directory to copy files on endpoint
-      file:
+      ansible.builtin.file:
         path: "{{ home }}/results"
         state: directory
-        mode: 01777
+        mode: '0777'
       become: true
 
   rescue:
-    - debug: msg="{{ 'Error code 4 - Permission failure' if ansible_failed_result is defined and 'not allowed to execute' in ansible_failed_result.module_stdout else '' }}"
+    - name: Failed to run SSS error 4
+      ansible.builtin.debug:
+        msg: "{{ 'Error code 4 - Permission failure' if ansible_failed_result is defined
+                and 'not allowed to execute' in ansible_failed_result.module_stdout else '' }}"
       register: task_failed
+      when: task_failed | default(false) | bool
 
-- name: Transfer SSS files
+- name: Transfer SSS files for Non-Solaris
+  when: ansible_os_family != "Solaris"
   block:
     - name: Copy required files
-      copy:
+      ansible.builtin.copy:
         src: "{{ item }}"
         dest: "{{ home }}/"
         mode: '0700'
@@ -69,61 +60,131 @@
         force: true
       become: true
       with_items:
-        - "{{ sss_path }}/sss.tar.gz"
-        - "library/sss/wscanhw_config.xml"
+        - "{{ role_path }}/files/sss.tar.gz"
+        - "{{ role_path }}/files/wscanhw_config.xml"
       register: sss_copy
 
     - name: Extract SSS
-      shell: gunzip < sss.tar.gz | tar xf -
+      ansible.builtin.shell: gunzip < sss.tar.gz | tar xf -
       args:
-        chdir: "{{ home }}/"
+        chdir: "{{ home }}"
         warn: false
+      changed_when: false
       become: true
+      register: sss_unarchive
+
+- name: Transfer SSS files for Solaris
+  when: ansible_os_family == "Solaris"
+  block:
+    - name: Copy required files for Solaris
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "{{ home }}/"
+        mode: '0700'
+        owner: 'root'
+        force: true
+      become: true
+      with_items:
+        - "{{ role_path }}/files/sss_solaris.tar"
+        - "{{ role_path }}/files/wscanhw_config.xml"
+      register: sss_copy_solaris
+
+    - name: Extract sss_solaris
+      ansible.builtin.unarchive:
+        src: "{{ home }}/sss_solaris.tar"
+        dest: "{{ home }}/"
+        remote_src: true
+      become: true
+      register: sss_unarchive_solaris
+
+- name: General Configuration
+  block:
+    - name: Changing File Mode To Executable
+      ansible.builtin.file:
+        dest: "{{ home }}/sss/"
+        mode: "0755"
+        recurse: true
+      become: true
+
+    - name: Delete sdms properties file
+      ansible.builtin.file:
+        path: "{{ home }}/sdms.properties"
+        state: absent
+      become: true
+
+    - name: Create sdms properties file
+      ansible.builtin.file:
+        path: "{{ home }}/sdms.properties"
+        state: touch
+        mode: '0777'
+      become: true
+
+    - name: Update sdms properties file
+      ansible.builtin.lineinfile:
+        path: "{{ home }}/sdms.properties"
+        line: "{{ item.line }}"
+      become: true
+      loop:
+        - line: 'SSL_ENABLED=false'
+        - line: 'SSL_COLD_START=false'
+        - line: 'SSL_ENABLE_PFILES=false'
+        - line: 'SSL_ENABLE_KDB=false'
+        - line: 'EXCLUDE_SCAN_LIST=cbs cfs dir ilk ina nco noc oic osl res rsa scm sck smm ssl ssk t4d tdm tim tiv tpm {{ exclude_scan_list }}'
+        - line: 'DEBUG_MODE=Y'
+        - line: 'DEBUG=ALL'
+        - line: 'TEMP_DIR_SWITCH={{ "Y" if change_temp_dir is defined and change_temp_dir | lower | trim in change_temp_dir_enabled else "N" }}'
+      vars:
+        change_temp_dir_enabled: ["y", "yes", "true", "on", "1"]
 
   rescue:
-    - debug: msg="Exit code 7 - Failed to copy or extract SSS or config for harware scan files"
+    - name: Failed to run SSS error 7
+      ansible.builtin.debug:
+        msg: "Exit code 7 - Failed to copy or extract SSS or config for hardware scan files"
       register: task_failed
-
-  when: task_failed is not defined
+      when: task_failed|default(false)|bool
 
 - name: Start scripts
+  when: task_failed is not defined
   block:
-    - name: Run SSS
-      shell:
-        cmd: "./subs_all.sh > ../results/sss.log"
+    - name: Run Shell Script On Unix Endpoint
+      ansible.builtin.shell:
+        cmd: "sh subs_all.sh {{ home }}/sdms.properties > ../results/computersystem.log"
         chdir: "{{ home }}/sss/"
+      async: "{{ '800' if execution_timeout is not defined or execution_timeout | int < 0 else (execution_timeout | int) }}"
+      poll: 30
       become: true
-      environment:
-        EXCLUDE_SCAN_LIST: "CBS CFS DIR ILK MAL OIC OSL RES RSA SCM SHS SSK SSL T4D TIM TIV TPM"
+      changed_when: false
 
     - name: Run computersystem
-      script: library/sss/computersystem.sh "{{ home }}/sss/subs_scanner_result.txt" "{{ home }}/results/{{ hostname }}.json"
+      ansible.builtin.script: files/computersystem.sh "{{ home }}/sss/subs_scanner_result.txt" "{{ home }}/results/{{ hostname }}.json"
       args:
-        chdir: "{{ home }}/"
+        chdir: "{{ home }}"
       become: true
 
     - name: Check hardware scan executable
-      stat:
+      ansible.builtin.stat:
         path: "{{ ansible_home }}/GTS/CIT/cit/bin/wscanhw"
       register: wscanhw
       become: true
 
     - name: Run hardware scan
-      shell: "{{ ansible_home }}/GTS/CIT/cit/bin/wscanhw -nolock -c {{ home }}/wscanhw_config.xml > {{ home }}/results/wscanhw.xml"
+      ansible.builtin.shell: "{{ ansible_home }}/GTS/CIT/cit/bin/wscanhw -nolock -c {{ home }}/wscanhw_config.xml > {{ home }}/results/wscanhw.xml"
       become: true
       failed_when: false
-      ignore_errors: true
       when: wscanhw.stat.exists
+      changed_when: false
 
-  when: task_failed is not defined
   rescue:
-    - debug: msg="Error code unknown - Check error {{ ansible_failed_result | string | regex_replace('(\'apikey\'\s*:\s*)\'[^\']*\'', '\1 VALUE_SPECIFIED_IN_NO_LOG_PARAMETER') }}"
+    - name: Failed to run SSS
+      ansible.builtin.debug:
+        msg: "Error code unknown - Check error {{ ansible_failed_result }}"
       register: task_failed
+      when: task_failed|default(false)|bool
 
 - name: Copy results
   block:
     - name: Copy SSS result
-      copy:
+      ansible.builtin.copy:
         src: "{{ home }}/sss/subs_scanner_result.txt"
         dest: "{{ home }}/results/"
         remote_src: true
@@ -132,23 +193,23 @@
       become: true
 
     - name: Archive results
-      archive:
+      community.general.archive:
         path:
           - "{{ home }}/results/*"
         dest: "{{ home }}/results/{{ hostname }}.tgz"
-        mode: 0644
+        mode: '0644'
       become: true
 
-    - name: Copy file archived
-      fetch:
+    - name: Copy archived file
+      ansible.builtin.fetch:
         src: "{{ home }}/results/{{ hostname }}.tgz"
         dest: "{{ local_path }}/{{ hostname }}.tgz"
         flat: true
       become: true
 
   rescue:
-    - debug:
+    - name: Failed to run SSS error 8
+      ansible.builtin.debug:
         msg: "Error code 8 - Failed to copy results"
       register: task_failed
-
-  when: task_failed is not defined
+      when: task_failed|default(false)|bool
