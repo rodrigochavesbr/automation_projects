@@ -1,5 +1,5 @@
 ---
-# @author: Michele Dias Singaretti <midias@br.ibm.com>
+# @author: Rodrigo Chaves
 
 - name: Report Status to Wsus
   block:
