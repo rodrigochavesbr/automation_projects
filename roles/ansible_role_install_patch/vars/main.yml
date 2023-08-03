@@ -1,0 +1,39 @@
+---
+# Lssecfixes path on server
+lssecfixes_path: '~'
+tools_path: '{{ vars.lssecfixes.docker_path }}/tools'
+
+# Teams
+country_code: '{{ hostvars[inventory_hostname].country | lower }}'
+teams_channel_email: '{{ vars.patch["teams_channel_" + country_code] }}'
+
+# Hostname
+ciname: '{{ hostvars[inventory_hostname].inventory_hostname_short | lower }}'
+
+# Health Check and Services path
+server_path: '{{ "C:/Program Files/ansible/GTS/patch_install" if hostvars[inventory_hostname].os == "windows" else "/var/opt/ansible/GTS/patch_install" }}'
+
+# no log var
+nolog: '{{ vars.lssecfixes.nolog }}'
+
+# client_name
+client_name: "{{ hostvars[inventory_hostname].client_name }}"
+
+# notication variables
+patch_step: '1/6 - Connectivity test'
+step_status: 'Failed'
+step_details: 'Check if server is reachable'
+step_error: ''
+job_status_execution: 'Running'
+pre_boot_status: 'Skipped'
+after_boot_status: 'Skipped'
+
+# variables for Policy Tool
+url_plc: "{{ vars.policy.url }}"
+token_plc: "{{ vars.policy.token }}"
+
+# variables for Privilege var
+nopriv: false
+
+# variables for wsus report status
+wsus_reset_authorization: "{{ vars.patch.wsus_reset_authorization }}"

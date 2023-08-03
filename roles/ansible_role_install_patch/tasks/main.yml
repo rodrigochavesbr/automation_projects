@@ -1,0 +1,229 @@
+---
+- name: Patch Installation
+  block:
+    - name: Check if pre requirements failed
+      when: failed_task is defined
+      ansible.builtin.fail:
+        msg: "Pre requirements check failed"
+
+    - name: Post status for step 1
+      ansible.builtin.include_tasks: post_status.yml
+      vars:
+        step_status: 'Completed'
+
+    - name: Set parameters for step 2
+      ansible.builtin.set_fact:
+        step_details: "Check if there are script files to be executed under {{ server_path }}"
+        patch_step: "2/6 - Check and run script files"
+      delegate_to: 127.0.0.1
+
+    - name: Step 2 Application stop
+      when: run_stop_start | bool
+      block:
+        - name: "Check files on {{ server_path }}"
+          action: >-
+            {{ "win_find" if os_server == "windows" else "find" }}
+            paths="{{ server_path }}"
+            file_type=file
+            patterns="{{ ['stop.*', 'start.*'] }}"
+          become: '{{ os_server != "windows" and ansible_user != "root" }}'
+          register: checkpath
+          no_log: false
+          failed_when: checkpath.msg is defined and checkpath.msg is match('.*denied.*')
+
+        - name: Stop services using script
+          ansible.builtin.include_tasks: execute_files.yml
+          vars:
+            file: "{% if os_server == 'windows' %}stop.ps1{% elif os_server == 'linux' %}stop.sh{% else %}stop.ksh{% endif %}"
+
+    - name: Post status when app stop is skipped
+      when: not run_stop_start | bool
+      ansible.builtin.include_tasks: post_status.yml
+      vars:
+        step_status: 'Skipped'
+        patch_step: '2/6 - Check and run script files'
+        step_details: 'Application restart was not requested.'
+
+    - name: Set parameters for step 3
+      ansible.builtin.set_fact:
+        patch_step: '3/6 - Reboot'
+        step_details: 'Reboot required before patch installation'
+        pre_boot_status: "{{ 'Completed' if pre_boot | bool else 'Skipped' }}"
+
+    - name: Reboot the server before patch installation
+      ansible.builtin.include_tasks: reboot.yml
+
+    - name: Post status for patch start
+      ansible.builtin.include_tasks: post_status.yml
+      vars:
+        step_status: 'Started'
+        patch_step: '4/6 - Patch installation'
+        step_details: 'Patch installation started'
+
+    - name: Start patch installation
+      ansible.builtin.include_tasks: "{{ task_name }}_update_patch.yml"
+      vars:
+        mapping:
+          AIX: aix
+          Debian: ubuntu
+          Suse: suse
+          Ubuntu: ubuntu
+          Windows: win
+        task_name: "{{ mapping[os_family] | default('yum') }}"
+
+    - name: Post status for step 4
+      ansible.builtin.include_tasks: post_status.yml
+
+    - name: Set parameters for step 5
+      when: os_family != 'AIX'
+      ansible.builtin.set_fact:
+        patch_step: '5/6 - Reboot'
+        step_details: 'Reboot required after patch installation'
+        step_status: 'Skipped'
+
+    - name: Reboot the server after installing the patches
+      when: os_family != 'AIX'
+      ansible.builtin.include_tasks: reboot.yml
+
+    - name: Check if there are remaining patches to be installed
+      when: os_family == 'Windows' and no_retry is not defined
+      ansible.builtin.include_tasks: win_retry_patch.yml
+
+    - name: Set parameters for step 6
+      ansible.builtin.set_fact:
+        patch_step: "6/6 - Run script file"
+      delegate_to: 127.0.0.1
+
+    - name: Start services using script
+      when: run_stop_start | bool
+      ansible.builtin.include_tasks: execute_files.yml
+      register: start_script
+      vars:
+        file: "{% if os_server == 'windows' %}start.ps1{% elif os_server == 'linux' %}start.sh{% else %}start.ksh{% endif %}"
+
+    - name: Post status when app start is skipped
+      when: not run_stop_start | bool
+      ansible.builtin.include_tasks: post_status.yml
+      vars:
+        step_status: 'Skipped'
+        patch_step: '6/6 - Run script file'
+        step_details: 'Application restart was not requested.'
+
+  rescue:
+    - name: Set failed message
+      ansible.builtin.set_fact:
+        step_error: '{{ message.err }}'
+        patch_status: 'Failed'
+        final_status: "{{ step_details }}"
+
+      vars:
+        message: |-
+          {% set data = { 'err': 'Patch Installation Problem - Error not found.' } %}
+          {% if error is defined %}
+          {%   set i = data.update({ 'err': error }) %}
+          {% elif ansible_failed_result is defined %}
+            {%- set msg = [] -%}
+            {%- for item in ['msg', 'module_stderr', 'module_stdout', 'stderr', 'exception', 'stdout'] -%}
+              {%- if item in ansible_failed_result and ansible_failed_result[item] is defined and ansible_failed_result[item] -%}
+                {%- set i = msg.append('[' + item + ']: ' + ansible_failed_result[item]) -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- set i = data.update({ 'err': msg | unique | join(';') }) -%}
+          {% elif failed_task is defined %}
+          {%   set i = data.update({ 'err': 'Failed checking Python for Unix endpoints or getting facts' }) %}
+          {% elif checkpath is defined and checkpath.msg is defined and checkpath.msg is match('.*access denied.*') %}
+          {%   set i = data.update({ 'err': '
+            It was not possible to check if there are script files to be executed under ' + server_path + ' access denied' }) %}
+          {% elif script_unix_out.stderr is defined or script_win_out.stderr is defined %}
+          {%   set i = data.update({ 'err': 'Patch install can not proceed because stop script execution failed. Script result: ' + script_error }) %}
+          {% elif ansible_failed is defined and ansible_failed.msg is defined %}
+          {%   set i = data.update({ 'err': ansible_failed.msg }) %}
+          {% endif %}
+          {{ data }}
+      delegate_to: 127.0.0.1
+
+- name: Set parameters for final status
+  vars:
+    status: >-
+      {%- if patch_status == 'Failed' -%}
+        Failed
+      {%- elif patch_status == 'Completed' and after_boot_status == 'Failed' -%}
+        Completed - Pending reboot
+      {%- else -%}
+        Completed
+      {%- endif -%}
+  ansible.builtin.set_fact:
+    patch_step: 'Final Status'
+    step_status: "{{ status }}"
+    job_status_execution: "{{ status }}"
+    step_details: "{{ final_status + '\n Pre reboot: ' + pre_boot_status + '   - After reboot: ' + after_boot_status }}"
+  delegate_to: 127.0.0.1
+
+- name: Post final status
+  ansible.builtin.import_tasks: post_status.yml
+  delegate_to: 127.0.0.1
+
+- name: Send e-mail with results
+  when: (email_list is defined and email_list| length > 0 and vars.patch.email_all)
+  community.general.mail:
+    host: '{{ vars.mail_relay.host }}'
+    port: '{{ vars.mail_relay.port | int }}'
+    to: "{{ email_list }}"
+    subject: "{{ change }} - {{ customer_name }} - Patch install status for: {{ ciname }}"
+    body: |
+      Server: {{ ciname }}
+      Patch step: {% if final_status is defined %}Final Status {% else %}{{ patch_step }}''{% endif %}
+      Status: {{ step_status }}
+      Details: {{ final_status }}
+      {% if patch_status == 'Failed' %} Error: {{ step_error }}{% endif %}
+    secure: try
+    charset: utf-8
+    from: noreply_next@ocean.ibm.com
+  delegate_to: 127.0.0.1
+
+- name: Set Elasticsearch data
+  vars:
+    status_code: >-
+      {%- if step_error is defined -%}
+        {%- if step_status == 'Completed' -%}
+          OK
+        {%- elif step_status == 'Completed - Pending reboot' -%}
+          OK - Pending reboot
+        {%- elif step_error is search('reboot') -%}
+          reboot
+        {%- elif step_error is search('Failed to connect') or step_error is search('psrp connection failure') -%}
+          connection_error
+        {%- elif step_error is search('HRESULT') or step_error is search('Cancelled') or step_error is search('WU_E_') or
+          step_error is search('Failed to download') or step_error is search('Failed to search for updates') or
+          step_error is search('Failed to invoke batch script')  -%}
+          local_server_error
+        {%- elif step_error is search('failed to authenticate') or step_error is search('Pre requirements check failed') -%}
+          prerequisite
+        {%- else -%}
+          NA
+        {%- endif -%}
+      {%- endif -%}
+  ansible.builtin.set_fact:
+    elasticsearch_doc: >-
+      {%- set doc = { '@timestamp': aiops_timestamp, 'host_status': host_status, 'change_number': change } -%}
+      {%- set job_execution =
+        { 'job_id': job_id, 'step': 'Final status', 'details': final_status, 'status': 'Completed', 'job_status_execution': 'Completed' } -%}
+      {%- if patch_status == 'Failed' -%}
+        {%- set ignored = job_execution.update({ 'job_status_execution': 'Failed', 'status': 'Failed', 'error': step_error }) -%}
+        {%- set i = doc.update({ 'patch_failed': 'Failed' }) -%}
+      {%- else -%}
+        {%- set i = doc.update({ 'patch_completed': 'Completed' }) -%}
+      {%- endif -%}
+      {%- set i = doc.update({ 'job_execution': job_execution, 'operational_system': os_type | default(os) | lower, 'status_code': status_code | trim }) -%}
+      {{ elasticsearch_doc | combine(doc) }}
+  delegate_to: 127.0.0.1
+
+- name: Invoke Elasticsearch
+  ansible.builtin.import_role:
+    name: ansible_role_elasticsearch
+  delegate_to: 127.0.0.1
+
+- name: Post final status Next
+  when: patch_status == 'Failed'
+  ansible.builtin.fail:
+    msg: 'Patch install completed with problems'

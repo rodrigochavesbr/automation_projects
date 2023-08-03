@@ -1,0 +1,22 @@
+---
+# tasks file for ansible_win_patch_install
+- name: Execute troubleshooting
+  block:
+    # This role uses the variable "script_output" to store the result.
+    - name: Run troubleshooting script
+      ansible.builtin.include_role:
+        name: script_runner
+      vars:
+        script_name: 'scripts/windows/win_updates_troubleshooting.ps1'
+
+    - name: Initiating update cycle
+      ansible.windows.win_shell: (New-Object -ComObject Microsoft.Update.AutoUpdate).DetectNow()
+
+    - name: Reporting status for wsus
+      ansible.builtin.include_tasks: win_report_status_wsus.yml
+  ignore_errors: true
+
+  rescue:
+    - name: Troubleshooting task failed
+      ansible.builtin.debug:
+        msg: "Troubleshooting task failed"
