@@ -6,7 +6,7 @@ Set-StrictMode -Version 2
 $ErrorActionPreference = 'Stop'
 
 ## @file wsus_report
-## @author Rodrigo Chaves <rschaves@kyndryl.com>
+## @author Rodrigo Chaves
 ## @version if applicable, provide information
 ## @brief Wsus report
 ## @par URL
