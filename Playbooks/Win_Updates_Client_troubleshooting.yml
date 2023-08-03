@@ -1,5 +1,5 @@
 ---
-# @author: Rodrigo Chaves <rschaves@kyndryl.com>
+# @author: Rodrigo Chaves
 # @name: Troubleshooting Windows Updates client
 # @base_version: 2.7.11
 # @description: Execute Windows Updates troubleshooting in servers
@@ -13,25 +13,8 @@
   hosts: "{{ affected_host }}"
   roles: ['ansible_role_ssh_tunnel']
   ignore_unreachable: true
-
   tasks:
-    - name: Run PS script
-      script: 'scripts/windows/win_updates_troubleshooting.ps1'
-      args:
-        executable: 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Unrestricted'
-
-    - name: Initiating update cycle
-      win_shell: (New-Object -ComObject Microsoft.Update.AutoUpdate).DetectNow()
-
-  rescue:
-    - name: Troubleshooting task failed
-      debug:
-        msg: "Troubleshooting task failed"
-
-    - name: Start troubleshooting
-      include_tasks: ../roles/tasks/win_updates_troubleshooting.yml
-      register: troubleshooting
-
-      rescue:
-      set_fact:
-      error: "{{ ansible_failed_result }}"
+    - name: Windows updates client troubleshooting/Report
+      import_role:
+        name: ansible_role_install_patch
+        tasks_from: win_updates_troubleshooting.yml
