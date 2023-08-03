@@ -10,8 +10,8 @@
 #       Usage: ./computersystem.sh [SSS txt file] [JSON output file]
 #     Pre-req: <pre requisites to successfully run>
 #      Author: Rodrigo Chaves
-#    Releases: 1.0 2016/06/15 Initial Release
-#              1.1 2020/05/18 Add script to Git
+#    Releases: 1.0 2020/06/15 Initial Release
+#              1.1 2021/05/18 Add script to Git
 ################################################################################
 
 ## Global variables
