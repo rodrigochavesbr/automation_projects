@@ -9,8 +9,8 @@
 """
 
 
-#   Filename:send2now.py
-#   Description: This script sends data to ServiceNow
+#   Filename:send2cmdb.py
+#   Description: This script sends data to CMDB
 #              It includes functions for parsing JSON data, mapping ICD classes,
 #               to Maximo classes, and sending the data to Maximo.
 #              This is not a module, but a script (see usage instructions)
