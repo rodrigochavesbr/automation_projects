@@ -7,11 +7,11 @@ Set-StrictMode -Version 2
 $ErrorActionPreference = 'SilentlyContinue'
 
 ## @file wsus_troubleshooting
-## @author Rodrigo Chaves <rschaves@kyndryl.com>
+## @author Rodrigo Chaves
 ## @version if applicable, provide information
 ## @brief roubleshooting of windows updates in a endpoint
 ## @par URL
-## https://github.kyndryl.net/la-innovation/next_scripts @n
+
 ##
 ## @par Purpose
 ##
@@ -39,7 +39,7 @@ $ErrorActionPreference = 'SilentlyContinue'
 #             From Powershell Prompt
 #               ./win_updates_troubleshooting.ps1
 #     Pre-req: Powershell 3
-#      Author: Rodrigo Chaves <rschaves@kyndryl.com>
+#      Author: Rodrigo Chaves
 #    Releases:
 ##############################################################################
 
