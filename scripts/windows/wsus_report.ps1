@@ -48,6 +48,7 @@ $Wsus = Get-WsusServer
 $WSUSConfig = $Wsus.GetConfiguration()
 $WSUSStats = $Wsus.GetStatus()
 $DaysComputerStale = 30
+#End WSUS connection process
 
 #Check Stale Computers (30 days)
 $computerscope = New-Object Microsoft.UpdateServices.Administration.ComputerTargetScope
@@ -61,7 +62,6 @@ $StaleComputers = $wsus.GetComputerTargets($computerscope) | ForEach-Object {
         TargetGroups_stale = ($_.GetComputerTargetGroups() | Select-Object -Expand Name) -join ', '
     }
 }
-#End WSUS connection process
 
 ## @fn wsus_info()
 ## @brief This function collects Wsus information
