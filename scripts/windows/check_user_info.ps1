@@ -144,10 +144,10 @@ function main() {
   If ($osInfo.ProductType -eq 2) {
     $domain = Get-ADDomain -Current LoggedOnUser
     $domain_name = $domain.Name
-    Get-ADusers_information | export-csv $env:HOMEDRIVE\IBM\results\"$domain_name"_"$env:COMPUTERNAME"_usersinformation.csv -NoTypeInformation -Encoding UTF8
+    Get-ADusers_information | export-csv $env:HOMEDRIVE\TEMP\"$domain_name"_"$env:COMPUTERNAME"_usersinformation.csv -NoTypeInformation -Encoding UTF8
   }
   else {
-    Get-LocalUsersInformation | export-csv $env:HOMEDRIVE\IBM\results\"$env:COMPUTERNAME"_usersinformation.csv -NoTypeInformation -Encoding UTF8
+    Get-LocalUsersInformation | export-csv $env:HOMEDRIVE\TEMP\"$env:COMPUTERNAME"_usersinformation.csv -NoTypeInformation -Encoding UTF8
   }
 }
 main
