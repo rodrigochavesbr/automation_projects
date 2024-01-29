@@ -10,7 +10,6 @@ $ErrorActionPreference = 'Stop'
 ## @version if applicable, provide information
 ## @brief Wsus report
 ## @par URL
-## https://github.kyndryl.net/la-innovation/next_scripts @n
 ##
 ## @par Purpose
 ##
@@ -38,7 +37,7 @@ $ErrorActionPreference = 'Stop'
 #             From Powershell Prompt
 #               ./wsus_report.ps1
 #     Pre-req: Powershell 3
-#      Author: Rodrigo Chaves <rschaves@kyndryl.com>
+#      Author: Rodrigo Chaves <rschavesbr@gmail.com>
 #    Releases:
 ##############################################################################
 
